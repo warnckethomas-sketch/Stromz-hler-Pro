@@ -1,0 +1,7 @@
+{
+  "name": "StromZähler Pro",
+  "description": "Erfassung und Auswertung von Strom- und Wärmepumpen-Zählerständen mit Tarifen und PDF-Export",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
