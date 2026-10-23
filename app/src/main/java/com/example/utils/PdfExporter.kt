@@ -385,7 +385,7 @@ object PdfExporter {
         y += chartHeight + 15f
         
         // Legend
-        val legendY = y + 50f
+        val legendY = y + 35f
         canvas.drawCircle(leftMargin + 10f, legendY, 3f, Paint().apply { color = Color.parseColor("#8B5CF6") })
         canvas.drawText("Durchschnitt pro Tag", leftMargin + 20f, legendY + 3f, smallPaint)
         
@@ -395,7 +395,7 @@ object PdfExporter {
         canvas.drawRect(leftMargin + 220f, legendY - 3f, leftMargin + 230f, legendY + 3f, Paint().apply { color = Color.parseColor("#10B981") })
         canvas.drawText("Wärmepumpe", leftMargin + 235f, legendY + 3f, smallPaint)
         
-        y += 90f
+        y = legendY + 28f
         
         // Table
         canvas.drawText("Detailaufstellung:", leftMargin, y, headerPaint)
@@ -412,7 +412,7 @@ object PdfExporter {
 
         val zebraPaint = Paint().apply { color = Color.parseColor("#F1F5F9") }
         intervals.sortedBy { it.startDate }.forEachIndexed { index, report ->
-            if (y > 780f) return@forEachIndexed
+            if (y > 720f) return@forEachIndexed
             if (index % 2 == 0) {
                 canvas.drawRect(leftMargin, y - 12f, rightMargin, y + 6f, zebraPaint)
             }
@@ -423,13 +423,93 @@ object PdfExporter {
             y += 16f
         }
 
+        // Chronological Notes under Detailaufstellung (only if notes exist)
+        val notesList = intervals
+            .filter { it.note.trim().isNotBlank() }
+            .sortedBy { it.startDate }
+
+        if (notesList.isNotEmpty()) {
+            y += 14f
+            canvas.drawText("Notizen:", leftMargin, y, headerPaint)
+            y += 15f
+            val notePaint = Paint(paint).apply { color = Color.parseColor("#334155") }
+            val noteBoldPaint = Paint(headerPaint).apply { textSize = 9f; color = Color.parseColor("#1E293B") }
+            val maxTextWidth = rightMargin - leftMargin
+
+            notesList.forEach { report ->
+                if (y > 750f) return@forEach
+                val repStart = com.example.utils.DateUtils.formatToGermanDate(report.startString)
+                val repEnd = com.example.utils.DateUtils.formatToGermanDate(report.endString)
+                val dateRangeStr = if (repStart != repEnd) " (${repStart.take(5)} - ${repEnd.take(5)})" else ""
+                val prefix = "• $repEnd$dateRangeStr: "
+                val prefixWidth = noteBoldPaint.measureText(prefix)
+
+                val noteText = report.note.trim()
+                val paragraphs = noteText.split("\n")
+
+                paragraphs.forEachIndexed { pIdx, paragraph ->
+                    if (y > 755f) return@forEach
+                    val words = paragraph.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+                    if (words.isEmpty()) return@forEachIndexed
+
+                    if (pIdx == 0) {
+                        var curLine = ""
+                        var prefixDrawn = false
+
+                        for (word in words) {
+                            val testRemainder = if (curLine.isEmpty()) word else "$curLine $word"
+                            val neededWidth = if (!prefixDrawn) prefixWidth + notePaint.measureText(testRemainder) else 12f + notePaint.measureText(testRemainder)
+
+                            if (neededWidth <= maxTextWidth) {
+                                curLine = testRemainder
+                            } else {
+                                if (!prefixDrawn) {
+                                    canvas.drawText(prefix, leftMargin, y, noteBoldPaint)
+                                    canvas.drawText(curLine, leftMargin + prefixWidth, y, notePaint)
+                                    prefixDrawn = true
+                                } else {
+                                    canvas.drawText(curLine, leftMargin + 12f, y, notePaint)
+                                }
+                                y += 13f
+                                if (y > 755f) return@forEach
+                                curLine = word
+                            }
+                        }
+
+                        if (!prefixDrawn) {
+                            canvas.drawText(prefix, leftMargin, y, noteBoldPaint)
+                            canvas.drawText(curLine, leftMargin + prefixWidth, y, notePaint)
+                        } else if (curLine.isNotEmpty()) {
+                            canvas.drawText(curLine, leftMargin + 12f, y, notePaint)
+                        }
+                        y += 14f
+                    } else {
+                        var curLine = ""
+                        for (word in words) {
+                            val test = if (curLine.isEmpty()) word else "$curLine $word"
+                            if (12f + notePaint.measureText(test) <= maxTextWidth) {
+                                curLine = test
+                            } else {
+                                canvas.drawText(curLine, leftMargin + 12f, y, notePaint)
+                                y += 13f
+                                if (y > 755f) return@forEach
+                                curLine = word
+                            }
+                        }
+                        if (curLine.isNotEmpty()) {
+                            canvas.drawText(curLine, leftMargin + 12f, y, notePaint)
+                            y += 14f
+                        }
+                    }
+                }
+                y += 2f
+            }
+        }
 
         // Tariff Info
-        y += 10f
-        canvas.drawText("Tarife:", leftMargin, y, headerPaint)
-        y += 15f
-        canvas.drawText("Tag-Strom: ${String.format(Locale.GERMAN, "%.2f ct/kWh", tariffs.normalWorkPriceCt)} | Wärmepumpe: ${String.format(Locale.GERMAN, "%.2f ct/kWh", tariffs.heatPumpWorkPriceCt)}", leftMargin, y, smallPaint)
-        y += 30f
+        val tariffY = maxOf(y + 10f, 762f).coerceAtMost(775f)
+        canvas.drawText("Tarife:", leftMargin, tariffY, headerPaint)
+        canvas.drawText("Tag-Strom: ${String.format(Locale.GERMAN, "%.2f ct/kWh", tariffs.normalWorkPriceCt)} | Wärmepumpe: ${String.format(Locale.GERMAN, "%.2f ct/kWh", tariffs.heatPumpWorkPriceCt)}", leftMargin, tariffY + 14f, smallPaint)
 
         // Footer
         val footerY = 800f
