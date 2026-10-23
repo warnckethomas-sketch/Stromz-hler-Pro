@@ -185,7 +185,35 @@ class MainActivity : ComponentActivity() {
                         composable("analytics") {
                             AnalyticsScreen(
                                 intervals = intervals,
-                                onNavigateBack = { navController.popBackStack() }
+                                onNavigateBack = { navController.popBackStack() },
+                                onExportPdf = { activeYearMonth, activeIntervals ->
+                                    val pdfFile = PdfExporter.generateAnalyticsReportPdf(
+                                        this@MainActivity,
+                                        activeIntervals,
+                                        activeYearMonth,
+                                        tariffs,
+                                        propertySettings,
+                                        selectedTenant
+                                    )
+                                    if (pdfFile != null && pdfFile.exists()) {
+                                        val uri = FileProvider.getUriForFile(
+                                            this@MainActivity,
+                                            "${packageName}.fileprovider",
+                                            pdfFile
+                                        )
+                                        val intent = Intent(Intent.ACTION_VIEW).apply {
+                                            setDataAndType(uri, "application/pdf")
+                                            flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NO_HISTORY
+                                        }
+                                        try {
+                                            startActivity(intent)
+                                        } catch (e: Exception) {
+                                            Toast.makeText(this@MainActivity, "PDF erstellt, aber kein PDF-Viewer gefunden.", Toast.LENGTH_LONG).show()
+                                        }
+                                    } else {
+                                        Toast.makeText(this@MainActivity, "Fehler beim Erstellen des PDFs.", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
                             )
                         }
                     }

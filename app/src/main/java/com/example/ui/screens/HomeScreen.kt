@@ -1166,8 +1166,27 @@ fun HomeScreen(
                                                             modifier = Modifier.fillMaxWidth(),
                                                             horizontalArrangement = Arrangement.SpaceBetween
                                                         ) {
-                                                            Text("Gesamt: ${report.totalConsumption} kWh", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                                            Text("Gesamt: ${String.format(Locale.GERMAN, "%.1f kWh", report.totalConsumption)}", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                                                             Text("Kosten: ${String.format(Locale.GERMAN, "%.2f €", report.totalCost)}", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
+                                                        }
+                                                        Row(
+                                                            modifier = Modifier
+                                                                .fillMaxWidth()
+                                                                .padding(top = 3.dp),
+                                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            Text(
+                                                                "Ø Verbrauch: ${String.format(Locale.GERMAN, "%.2f kWh / Tag", report.dailyAverageConsumption)}",
+                                                                style = MaterialTheme.typography.bodySmall,
+                                                                fontWeight = FontWeight.SemiBold,
+                                                                color = MaterialTheme.colorScheme.tertiary
+                                                            )
+                                                            Text(
+                                                                "(${report.days} ${if (report.days == 1) "Tag" else "Tage"})",
+                                                                style = MaterialTheme.typography.bodySmall,
+                                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                            )
                                                         }
                                                         Spacer(modifier = Modifier.height(8.dp))
                                                         Button(

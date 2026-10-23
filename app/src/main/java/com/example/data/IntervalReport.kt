@@ -24,7 +24,16 @@ data class IntervalReport(
     val heatPumpTotalCost: Double,
     val totalCost: Double,
     val note: String
-)
+) {
+    val dailyAverageConsumption: Double
+        get() = if (days > 0) totalConsumption / days else 0.0
+
+    val dailyNormalConsumption: Double
+        get() = if (days > 0) normalConsumption / days else 0.0
+
+    val dailyHeatPumpConsumption: Double
+        get() = if (days > 0) heatPumpConsumption / days else 0.0
+}
 
 fun calculateIntervals(
     readings: List<MeterReadingEntity>,
@@ -59,13 +68,7 @@ fun calculateIntervals(
 
         val totalCost = normalTotal + hpTotal
 
-        val noteText = when {
-            curr.note.isNotBlank() && prev.note.isNotBlank() && curr.note != prev.note ->
-                "${curr.note} (${com.example.utils.DateUtils.formatToGermanDate(prev.dateString)}: ${prev.note})"
-            curr.note.isNotBlank() -> curr.note
-            prev.note.isNotBlank() -> prev.note
-            else -> ""
-        }
+        val noteText = curr.note.trim()
 
         reports.add(
             IntervalReport(

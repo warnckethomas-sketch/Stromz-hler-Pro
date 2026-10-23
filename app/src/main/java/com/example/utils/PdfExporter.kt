@@ -58,7 +58,7 @@ object PdfExporter {
         }
 
         var y = 45f
-        val leftMargin = 40f
+        val leftMargin = 80f
         val rightMargin = 555f
 
         // Title
@@ -122,10 +122,10 @@ object PdfExporter {
         val repEnd = com.example.utils.DateUtils.formatToGermanDate(report.endString)
         canvas.drawText("Von: $repStart  bis  $repEnd (${report.days} Tage)", leftMargin, y, paint)
 
-        if (report.note.isNotBlank()) {
+        if (report.note.trim().isNotBlank()) {
             y += 26f // Eine Leerzeile zwischen Zeitraum und Notiz
             val notePaint = Paint(paint).apply { color = Color.parseColor("#334155") }
-            val noteLines = report.note.split("\n")
+            val noteLines = report.note.trim().split("\n")
             noteLines.forEachIndexed { index, line ->
                 val prefix = if (index == 0) "Notiz: " else "       "
                 canvas.drawText("$prefix$line", leftMargin, y, notePaint)
@@ -141,25 +141,25 @@ object PdfExporter {
         y += 16f
 
         canvas.drawText("Zähler", leftMargin, y, subtitlePaint)
-        canvas.drawText("Alt", leftMargin + 150f, y, subtitlePaint)
-        canvas.drawText("Neu", leftMargin + 250f, y, subtitlePaint)
-        canvas.drawText("Verbrauch", leftMargin + 350f, y, subtitlePaint)
+        canvas.drawText("Alt", leftMargin + 135f, y, subtitlePaint)
+        canvas.drawText("Neu", leftMargin + 240f, y, subtitlePaint)
+        canvas.drawText("Verbrauch", leftMargin + 345f, y, subtitlePaint)
         y += 6f
         canvas.drawLine(leftMargin, y, rightMargin, y, linePaint)
         y += 18f
 
         // Tag-Strom row
         canvas.drawText("Tag-Strom", leftMargin, y, paint)
-        canvas.drawText(String.format(Locale.GERMAN, "%.1f kWh", report.normalStart), leftMargin + 150f, y, paint)
-        canvas.drawText(String.format(Locale.GERMAN, "%.1f kWh", report.normalEnd), leftMargin + 250f, y, paint)
-        canvas.drawText(String.format(Locale.GERMAN, "%.1f kWh", report.normalConsumption), leftMargin + 350f, y, paint)
+        canvas.drawText(String.format(Locale.GERMAN, "%.1f kWh", report.normalStart), leftMargin + 135f, y, paint)
+        canvas.drawText(String.format(Locale.GERMAN, "%.1f kWh", report.normalEnd), leftMargin + 240f, y, paint)
+        canvas.drawText(String.format(Locale.GERMAN, "%.1f kWh", report.normalConsumption), leftMargin + 345f, y, paint)
         y += 20f
 
         // Wärmepumpe row
         canvas.drawText("Wärmepumpe", leftMargin, y, paint)
-        canvas.drawText(String.format(Locale.GERMAN, "%.1f kWh", report.heatPumpStart), leftMargin + 150f, y, paint)
-        canvas.drawText(String.format(Locale.GERMAN, "%.1f kWh", report.heatPumpEnd), leftMargin + 250f, y, paint)
-        canvas.drawText(String.format(Locale.GERMAN, "%.1f kWh", report.heatPumpConsumption), leftMargin + 350f, y, paint)
+        canvas.drawText(String.format(Locale.GERMAN, "%.1f kWh", report.heatPumpStart), leftMargin + 135f, y, paint)
+        canvas.drawText(String.format(Locale.GERMAN, "%.1f kWh", report.heatPumpEnd), leftMargin + 240f, y, paint)
+        canvas.drawText(String.format(Locale.GERMAN, "%.1f kWh", report.heatPumpConsumption), leftMargin + 345f, y, paint)
         y += 22f
 
         canvas.drawLine(leftMargin, y, rightMargin, y, linePaint)
@@ -168,11 +168,12 @@ object PdfExporter {
         // Gesamtverbrauch right-aligned under readings table
         val consumptionPaint = Paint().apply {
             color = Color.parseColor("#0F172A")
-            textSize = 12f
+            textSize = 11.5f
             isFakeBoldText = true
             textAlign = Paint.Align.RIGHT
         }
-        canvas.drawText("Gesamtverbrauch: ${String.format(Locale.GERMAN, "%.1f kWh", report.totalConsumption)}", rightMargin, y, consumptionPaint)
+        val dailyAvg = report.dailyAverageConsumption
+        canvas.drawText("Gesamtverbrauch: ${String.format(Locale.GERMAN, "%.1f kWh", report.totalConsumption)}  (Ø ${String.format(Locale.GERMAN, "%.2f kWh/Tag", dailyAvg)} bei ${report.days} Tagen)", rightMargin, y, consumptionPaint)
         y += 25f
 
         // Costs Breakdown
@@ -224,9 +225,221 @@ object PdfExporter {
 
         canvas.drawText("Gesamtkosten: ${String.format(Locale.GERMAN, "%.2f €", report.totalCost)}", rightMargin, y, totalPaint)
 
+        // Footer
+        val footerY = 800f
+        val footerPaint = Paint().apply { color = Color.BLACK; textSize = 8f }
+        canvas.drawLine(leftMargin, footerY, rightMargin, footerY, linePaint)
+        canvas.drawText("Stromzähler-App", leftMargin, footerY + 15f, footerPaint)
+        val pageNumPaint = Paint(footerPaint).apply { textAlign = Paint.Align.RIGHT }
+        canvas.drawText("Seite 1 von 1", rightMargin, footerY + 15f, pageNumPaint)
+
         pdfDocument.finishPage(page)
 
         val file = File(context.cacheDir, "Stromzaehler_Bericht_${report.endString}.pdf")
+        try {
+            pdfDocument.writeTo(FileOutputStream(file))
+            pdfDocument.close()
+            return file
+        } catch (e: Exception) {
+            e.printStackTrace()
+            pdfDocument.close()
+            return null
+        }
+    }
+
+    fun generateAnalyticsReportPdf(
+        context: Context,
+        intervals: List<IntervalReport>,
+        monthKey: String,
+        tariffs: TariffSettingsEntity,
+        property: PropertySettingsEntity?,
+        tenant: TenantEntity?
+    ): File? {
+        val pdfDocument = PdfDocument()
+        val pageInfo = PdfDocument.PageInfo.Builder(595, 842, 1).create() // A4
+        val page = pdfDocument.startPage(pageInfo)
+        val canvas = page.canvas
+
+        val paint = Paint().apply { color = Color.BLACK; textSize = 9f }
+        val smallPaint = Paint().apply { color = Color.BLACK; textSize = 8f }
+        val titlePaint = Paint().apply { color = Color.parseColor("#1E293B"); textSize = 16f; isFakeBoldText = true }
+        val headerPaint = Paint().apply { color = Color.parseColor("#0F172A"); textSize = 10f; isFakeBoldText = true }
+        val linePaint = Paint().apply { color = Color.parseColor("#CBD5E1"); strokeWidth = 1f }
+        val boxPaint = Paint().apply { color = Color.parseColor("#F1F5F9") }
+
+        var y = 45f
+        val leftMargin = 80f 
+        val rightMargin = 555f
+        val chartLeftPadding = 50f
+        val chartRightPadding = 20f
+
+        // Title
+        val yearPart = monthKey.split("-")[0]
+        val monthNum = monthKey.split("-")[1].toInt()
+        val monthNames = arrayOf("", "Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember")
+        val monthName = monthNames.getOrElse(monthNum) { "" }
+
+        canvas.drawText("Grafische Auswertung - $monthName - $yearPart", leftMargin, y, titlePaint)
+        y += 25f
+        canvas.drawText("Erstellt am: ${SimpleDateFormat("dd.MM.yyyy", Locale.GERMAN).format(Date())}", leftMargin, y, paint)
+        y += 30f
+        if (property != null) {
+            canvas.drawText("Mietobjekt: ${property.propertyName}", leftMargin, y, headerPaint)
+            y += 15f
+            if (property.propertyAddress.isNotBlank()) {
+                canvas.drawText("Anschrift: ${property.propertyAddress}", leftMargin, y, paint)
+                y += 20f
+            }
+        }
+        y += 5f
+
+        // Summary Tiles
+        val totalCons = intervals.sumOf { it.totalConsumption }
+        val totalNormal = intervals.sumOf { it.normalConsumption }
+        val totalHp = intervals.sumOf { it.heatPumpConsumption }
+        val totalCost = intervals.sumOf { it.totalCost }
+        val totalDays = intervals.sumOf { it.days }.let { if (it == 0) 1 else it }
+
+        val valAlignRightPaint = Paint(paint).apply { textAlign = Paint.Align.RIGHT }
+        val headerAlignRightPaint = Paint(headerPaint).apply { textAlign = Paint.Align.RIGHT }
+        val valRightX = leftMargin + 230f
+
+        canvas.drawRect(leftMargin, y, rightMargin, y + 80f, boxPaint)
+        canvas.drawText("Gesamt:", leftMargin + 10f, y + 20f, headerPaint)
+        canvas.drawText(String.format(Locale.GERMAN, "%.1f kWh", totalCons), valRightX, y + 20f, headerAlignRightPaint)
+        canvas.drawText("Tag-Strom:", leftMargin + 10f, y + 35f, paint)
+        canvas.drawText(String.format(Locale.GERMAN, "%.1f kWh", totalNormal), valRightX, y + 35f, valAlignRightPaint)
+        canvas.drawText("Wärmepumpe:", leftMargin + 10f, y + 50f, paint)
+        canvas.drawText(String.format(Locale.GERMAN, "%.1f kWh", totalHp), valRightX, y + 50f, valAlignRightPaint)
+        canvas.drawText("Ø/Tag:", leftMargin + 10f, y + 65f, paint)
+        canvas.drawText(String.format(Locale.GERMAN, "%.2f kWh", totalCons / totalDays), valRightX, y + 65f, valAlignRightPaint)
+        canvas.drawText("Gesamtkosten:", leftMargin + 300f, y + 20f, headerPaint)
+        canvas.drawText(String.format(Locale.GERMAN, "%.2f €", totalCost), leftMargin + 300f, y + 45f, titlePaint)
+        
+        y += 100f
+
+        // Chart Rendering
+        canvas.drawText("Verbrauch je Intervall (kWh)", leftMargin, y, headerPaint)
+        y += 20f
+        
+        val chartY = y
+        val chartHeight = 150f
+        val chartWidth = rightMargin - leftMargin - chartLeftPadding - chartRightPadding
+        val maxY = intervals.maxOfOrNull { maxOf(it.normalConsumption, it.heatPumpConsumption, it.dailyAverageConsumption) }?.let { if (it == 0.0) 10.0 else it * 1.1 } ?: 10.0
+        
+        // Raster lines
+        for (i in 0..4) {
+            val yVal = chartY + chartHeight - (i * chartHeight / 4f)
+            canvas.drawLine(leftMargin + chartLeftPadding, yVal, rightMargin, yVal, linePaint)
+        }
+        
+        // Axis
+        canvas.drawLine(leftMargin + chartLeftPadding, chartY, leftMargin + chartLeftPadding, chartY + chartHeight, linePaint)
+        for (i in 0..4) {
+            val yVal = chartY + chartHeight - (i * chartHeight / 4f)
+            val kwhVal = (maxY * i / 4f)
+            canvas.drawText(String.format(Locale.GERMAN, "%.0f", kwhVal), leftMargin + 5f, yVal + 3f, paint)
+        }
+        
+        // Bars/Circles
+        val barCount = intervals.size
+        val barGroupWidth = chartWidth / barCount
+        val circleRadius = 2.5f
+        val barWidth = barGroupWidth * 0.2f
+        
+        intervals.sortedBy { it.startDate }.forEachIndexed { index, report ->
+            val x = (leftMargin + chartLeftPadding + (index * barGroupWidth) + (barGroupWidth * 0.1f)).toFloat()
+            val avgColor = Color.parseColor("#8B5CF6")
+            
+            // Average (Circle)
+            val avgH = (report.dailyAverageConsumption / maxY) * chartHeight
+            val circleY = (chartY + chartHeight - avgH).toFloat()
+            canvas.drawCircle(x + 5f, circleY, circleRadius, Paint().apply { color = avgColor })
+            canvas.drawLine(x + 5f, circleY, x + 5f, chartY + chartHeight, Paint().apply { color = avgColor; strokeWidth = 0.5f })
+            if (report.dailyAverageConsumption > 0) {
+                canvas.drawText(
+                    String.format(Locale.GERMAN, "%.1f", report.dailyAverageConsumption),
+                    x - 2f,
+                    circleY - 5f,
+                    Paint(smallPaint).apply { textAlign = Paint.Align.RIGHT }
+                )
+            }
+            
+            // Normal (Bar)
+            val normalH = (report.normalConsumption / maxY) * chartHeight
+            canvas.drawRect(x + 10f, chartY + chartHeight - normalH.toFloat(), x + 10f + barWidth.toFloat(), chartY + chartHeight, Paint().apply { color = Color.parseColor("#3B82F6") })
+            if (report.normalConsumption > 0) {
+                canvas.drawText(String.format(Locale.GERMAN, "%.1f", report.normalConsumption), x + 10f + (barWidth.toFloat() / 2), chartY + chartHeight - normalH.toFloat() - 8f, smallPaint)
+            }
+            
+            // Heat Pump (Bar)
+            val hpH = (report.heatPumpConsumption / maxY) * chartHeight
+            canvas.drawRect(x + 10f + barWidth.toFloat() + 2f, chartY + chartHeight - hpH.toFloat(), x + 10f + (barWidth.toFloat() * 2) + 2f, chartY + chartHeight, Paint().apply { color = Color.parseColor("#10B981") })
+            if (report.heatPumpConsumption > 0) {
+                canvas.drawText(String.format(Locale.GERMAN, "%.1f", report.heatPumpConsumption), x + 10f + barWidth.toFloat() + 2f + (barWidth.toFloat() / 2), chartY + chartHeight - hpH.toFloat() - 8f, smallPaint)
+            }
+            
+            // Date label
+            canvas.drawText("${com.example.utils.DateUtils.formatToGermanDate(report.startString).take(5)} - ${com.example.utils.DateUtils.formatToGermanDate(report.endString).take(5)}", x, chartY + chartHeight + 15f, smallPaint)
+        }
+        y += chartHeight + 15f
+        
+        // Legend
+        val legendY = y + 50f
+        canvas.drawCircle(leftMargin + 10f, legendY, 3f, Paint().apply { color = Color.parseColor("#8B5CF6") })
+        canvas.drawText("Durchschnitt pro Tag", leftMargin + 20f, legendY + 3f, smallPaint)
+        
+        canvas.drawRect(leftMargin + 130f, legendY - 3f, leftMargin + 140f, legendY + 3f, Paint().apply { color = Color.parseColor("#3B82F6") })
+        canvas.drawText("Tag-Strom", leftMargin + 145f, legendY + 3f, smallPaint)
+        
+        canvas.drawRect(leftMargin + 220f, legendY - 3f, leftMargin + 230f, legendY + 3f, Paint().apply { color = Color.parseColor("#10B981") })
+        canvas.drawText("Wärmepumpe", leftMargin + 235f, legendY + 3f, smallPaint)
+        
+        y += 90f
+        
+        // Table
+        canvas.drawText("Detailaufstellung:", leftMargin, y, headerPaint)
+        y += 15f
+        canvas.drawLine(leftMargin, y, rightMargin, y, linePaint)
+        y += 15f
+        canvas.drawText("Zeitraum", leftMargin, y, headerPaint)
+        canvas.drawText("Verbrauch", leftMargin + 180f, y, headerPaint)
+        canvas.drawText("Ø/Tag", leftMargin + 280f, y, headerPaint)
+        canvas.drawText("Kosten", leftMargin + 380f, y, headerPaint)
+        y += 5f
+        canvas.drawLine(leftMargin, y, rightMargin, y, linePaint)
+        y += 18f
+
+        val zebraPaint = Paint().apply { color = Color.parseColor("#F1F5F9") }
+        intervals.sortedBy { it.startDate }.forEachIndexed { index, report ->
+            if (y > 780f) return@forEachIndexed
+            if (index % 2 == 0) {
+                canvas.drawRect(leftMargin, y - 12f, rightMargin, y + 6f, zebraPaint)
+            }
+            canvas.drawText("${com.example.utils.DateUtils.formatToGermanDate(report.startString)} - ${com.example.utils.DateUtils.formatToGermanDate(report.endString)}", leftMargin, y, paint)
+            canvas.drawText(String.format(Locale.GERMAN, "%.1f kWh", report.totalConsumption), leftMargin + 180f, y, paint)
+            canvas.drawText(String.format(Locale.GERMAN, "%.2f", report.dailyAverageConsumption), leftMargin + 280f, y, paint)
+            canvas.drawText(String.format(Locale.GERMAN, "%.2f €", report.totalCost), leftMargin + 380f, y, smallPaint)
+            y += 16f
+        }
+
+
+        // Tariff Info
+        y += 10f
+        canvas.drawText("Tarife:", leftMargin, y, headerPaint)
+        y += 15f
+        canvas.drawText("Tag-Strom: ${String.format(Locale.GERMAN, "%.2f ct/kWh", tariffs.normalWorkPriceCt)} | Wärmepumpe: ${String.format(Locale.GERMAN, "%.2f ct/kWh", tariffs.heatPumpWorkPriceCt)}", leftMargin, y, smallPaint)
+        y += 30f
+
+        // Footer
+        val footerY = 800f
+        canvas.drawLine(leftMargin, footerY, rightMargin, footerY, linePaint)
+        canvas.drawText("Stromzähler-App", leftMargin, footerY + 15f, smallPaint)
+        val pageNumPaint = Paint(smallPaint).apply { textAlign = Paint.Align.RIGHT }
+        canvas.drawText("Seite 1 von 1", rightMargin, footerY + 15f, pageNumPaint)
+
+        pdfDocument.finishPage(page)
+        val file = File(context.cacheDir, "Auswertung_${monthKey}.pdf")
         try {
             pdfDocument.writeTo(FileOutputStream(file))
             pdfDocument.close()

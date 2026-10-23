@@ -23,6 +23,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Bolt
@@ -80,9 +81,21 @@ private fun calculateNiceMax(value: Double): Double {
 @Composable
 fun AnalyticsScreen(
     intervals: List<IntervalReport>,
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    onExportPdf: (activeYearMonth: String, activeIntervals: List<IntervalReport>) -> Unit
 ) {
     val coroutineScope = rememberCoroutineScope()
+    val intervalsByMonth = remember(intervals) {
+        intervals.groupBy { extractMonthKey(it.endString) }
+            .toSortedMap()
+    }
+    val monthKeys = remember(intervalsByMonth) { intervalsByMonth.keys.toList() }
+    val currentMonthKey = remember { SimpleDateFormat("yyyy-MM", Locale.GERMAN).format(java.util.Date()) }
+    val initialIndex = remember(monthKeys) {
+        val idx = monthKeys.indexOf(currentMonthKey)
+        if (idx != -1) idx else (monthKeys.size - 1).coerceAtLeast(0)
+    }
+    val pagerState = rememberPagerState(initialPage = initialIndex) { monthKeys.size }
 
     Scaffold(
         topBar = {
@@ -94,6 +107,20 @@ fun AnalyticsScreen(
                         modifier = Modifier.testTag("back_button")
                     ) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Zurück")
+                    }
+                },
+                actions = {
+                    IconButton(
+                        onClick = {
+                            val activeYearMonth = monthKeys.getOrNull(pagerState.currentPage) ?: ""
+                            val activeIntervals = intervalsByMonth[activeYearMonth] ?: emptyList()
+                            if (activeYearMonth.isNotBlank() && activeIntervals.isNotEmpty()) {
+                                onExportPdf(activeYearMonth, activeIntervals)
+                            }
+                        },
+                        enabled = monthKeys.isNotEmpty()
+                    ) {
+                        Icon(Icons.Default.PictureAsPdf, contentDescription = "PDF Exportieren")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -134,24 +161,6 @@ fun AnalyticsScreen(
                 }
             }
         } else {
-            // Group intervals by month (ascending order: e.g. 2026-01, 2026-02, 2026-03)
-            val intervalsByMonth = remember(intervals) {
-                intervals.groupBy { extractMonthKey(it.endString) }
-                    .toSortedMap()
-            }
-            val monthKeys = remember(intervalsByMonth) { intervalsByMonth.keys.toList() }
-
-            // Default to current month if in list, otherwise the newest/last month
-            val currentMonthKey = remember {
-                SimpleDateFormat("yyyy-MM", Locale.GERMAN).format(java.util.Date())
-            }
-            val initialIndex = remember(monthKeys) {
-                val idx = monthKeys.indexOf(currentMonthKey)
-                if (idx != -1) idx else (monthKeys.size - 1).coerceAtLeast(0)
-            }
-
-            val pagerState = rememberPagerState(initialPage = initialIndex) { monthKeys.size }
-
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -337,12 +346,23 @@ fun AnalyticsScreen(
                                                         color = MaterialTheme.colorScheme.onSurface
                                                     )
                                                 }
-                                                Text(
-                                                    String.format(Locale.GERMAN, "%.1f kWh", normalMonthCons),
-                                                    style = MaterialTheme.typography.titleMedium,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = MaterialTheme.colorScheme.primary
-                                                )
+                                                Column(horizontalAlignment = Alignment.End) {
+                                                    Text(
+                                                        String.format(Locale.GERMAN, "%.1f kWh", normalMonthCons),
+                                                        style = MaterialTheme.typography.titleMedium,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = MaterialTheme.colorScheme.primary
+                                                    )
+                                                    val totalDays = monthIntervals.sumOf { it.days }
+                                                    if (totalDays > 0) {
+                                                        Text(
+                                                            String.format(Locale.GERMAN, "Ø %.2f kWh/Tag", normalMonthCons / totalDays),
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            fontWeight = FontWeight.Medium,
+                                                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                                                        )
+                                                    }
+                                                }
                                             }
                                         }
 
@@ -386,12 +406,23 @@ fun AnalyticsScreen(
                                                         color = MaterialTheme.colorScheme.onSurface
                                                     )
                                                 }
-                                                Text(
-                                                    String.format(Locale.GERMAN, "%.1f kWh", hpMonthCons),
-                                                    style = MaterialTheme.typography.titleMedium,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = MaterialTheme.colorScheme.secondary
-                                                )
+                                                Column(horizontalAlignment = Alignment.End) {
+                                                    Text(
+                                                        String.format(Locale.GERMAN, "%.1f kWh", hpMonthCons),
+                                                        style = MaterialTheme.typography.titleMedium,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = MaterialTheme.colorScheme.secondary
+                                                    )
+                                                    val totalDays = monthIntervals.sumOf { it.days }
+                                                    if (totalDays > 0) {
+                                                        Text(
+                                                            String.format(Locale.GERMAN, "Ø %.2f kWh/Tag", hpMonthCons / totalDays),
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            fontWeight = FontWeight.Medium,
+                                                            color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.8f)
+                                                        )
+                                                    }
+                                                }
                                             }
                                         }
 
@@ -405,42 +436,59 @@ fun AnalyticsScreen(
                                                 )
                                                 .padding(horizontal = 14.dp, vertical = 12.dp)
                                         ) {
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                horizontalArrangement = Arrangement.SpaceBetween,
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .size(36.dp)
-                                                            .background(
-                                                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.15f),
-                                                                shape = RoundedCornerShape(8.dp)
-                                                            ),
-                                                        contentAlignment = Alignment.Center
-                                                    ) {
-                                                        Icon(
-                                                            Icons.Default.ElectricMeter,
-                                                            contentDescription = null,
-                                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                            modifier = Modifier.size(20.dp)
+                                            Column(modifier = Modifier.fillMaxWidth()) {
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .size(36.dp)
+                                                                .background(
+                                                                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.15f),
+                                                                    shape = RoundedCornerShape(8.dp)
+                                                                ),
+                                                            contentAlignment = Alignment.Center
+                                                        ) {
+                                                            Icon(
+                                                                Icons.Default.ElectricMeter,
+                                                                contentDescription = null,
+                                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                                modifier = Modifier.size(20.dp)
+                                                            )
+                                                        }
+                                                        Spacer(modifier = Modifier.width(12.dp))
+                                                        Text(
+                                                            "Gesamt-Verbrauch",
+                                                            style = MaterialTheme.typography.bodyMedium,
+                                                            fontWeight = FontWeight.SemiBold,
+                                                            color = MaterialTheme.colorScheme.onSurface
                                                         )
                                                     }
-                                                    Spacer(modifier = Modifier.width(12.dp))
                                                     Text(
-                                                        "Gesamt-Verbrauch",
-                                                        style = MaterialTheme.typography.bodyMedium,
-                                                        fontWeight = FontWeight.SemiBold,
+                                                        String.format(Locale.GERMAN, "%.1f kWh", totalMonthCons),
+                                                        style = MaterialTheme.typography.titleMedium,
+                                                        fontWeight = FontWeight.Bold,
                                                         color = MaterialTheme.colorScheme.onSurface
                                                     )
                                                 }
-                                                Text(
-                                                    String.format(Locale.GERMAN, "%.1f kWh", totalMonthCons),
-                                                    style = MaterialTheme.typography.titleMedium,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = MaterialTheme.colorScheme.onSurface
-                                                )
+                                                val totalDays = monthIntervals.sumOf { it.days }
+                                                if (totalDays > 0) {
+                                                    Spacer(modifier = Modifier.height(4.dp))
+                                                    Row(
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        horizontalArrangement = Arrangement.End
+                                                    ) {
+                                                        Text(
+                                                            String.format(Locale.GERMAN, "Ø %.2f kWh/Tag (%d T.)", totalMonthCons / totalDays, totalDays),
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            fontWeight = FontWeight.SemiBold,
+                                                            color = MaterialTheme.colorScheme.tertiary
+                                                        )
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -480,14 +528,16 @@ fun AnalyticsScreen(
 
                                     val primaryColor = MaterialTheme.colorScheme.primary
                                     val secondaryColor = MaterialTheme.colorScheme.secondary
+                                    val tertiaryColor = MaterialTheme.colorScheme.tertiary
                                     val axisColor = MaterialTheme.colorScheme.outline
                                     val textColorInt = MaterialTheme.colorScheme.onSurfaceVariant.toArgb()
                                     val primaryColorInt = primaryColor.toArgb()
                                     val secondaryColorInt = secondaryColor.toArgb()
+                                    val tertiaryColorInt = tertiaryColor.toArgb()
                                     val density = LocalDensity.current
 
                                     val maxVal = chartIntervals.maxOfOrNull {
-                                        maxOf(it.normalConsumption, it.heatPumpConsumption)
+                                        maxOf(it.normalConsumption, it.heatPumpConsumption, it.dailyAverageConsumption)
                                     } ?: 10.0
                                     val maxY = calculateNiceMax(maxVal)
 
@@ -527,6 +577,14 @@ fun AnalyticsScreen(
                                         val datePaint = Paint().apply {
                                             color = textColorInt
                                             textSize = with(density) { 11.sp.toPx() }
+                                            textAlign = Paint.Align.CENTER
+                                            isAntiAlias = true
+                                        }
+
+                                        val barValuePaintAvg = Paint().apply {
+                                            color = tertiaryColorInt
+                                            textSize = with(density) { 9.sp.toPx() }
+                                            typeface = Typeface.DEFAULT_BOLD
                                             textAlign = Paint.Align.CENTER
                                             isAntiAlias = true
                                         }
@@ -596,15 +654,22 @@ fun AnalyticsScreen(
                                         val count = chartIntervals.size
                                         if (count > 0) {
                                             val slotWidth = graphWidth / count
-                                            val maxBarWidth = with(density) { 20.dp.toPx() }
+                                            val circleRadius = with(density) { 4.5.dp.toPx() }
+                                            val circleSpacing = with(density) { 4.dp.toPx() }
                                             val barSpacing = with(density) { 3.dp.toPx() }
-                                            val barWidth = ((slotWidth - with(density) { 16.dp.toPx() }) / 2f)
-                                                .coerceIn(with(density) { 7.dp.toPx() }, maxBarWidth)
+                                            val maxBarWidth = with(density) { 18.dp.toPx() }
+
+                                            val availableForBars = (slotWidth - (circleRadius * 2f) - circleSpacing - barSpacing - with(density) { 10.dp.toPx() })
+                                            val barWidth = (availableForBars / 2f).coerceIn(with(density) { 6.dp.toPx() }, maxBarWidth)
+                                            val totalGroupWidth = (circleRadius * 2f) + circleSpacing + (barWidth * 2f) + barSpacing
 
                                             chartIntervals.forEachIndexed { index, report ->
                                                 val groupCenterX = leftPadding + (index + 0.5f) * slotWidth
-                                                val normalLeft = groupCenterX - barWidth - (barSpacing / 2f)
-                                                val hpLeft = groupCenterX + (barSpacing / 2f)
+                                                val groupStartX = groupCenterX - (totalGroupWidth / 2f)
+
+                                                val circleCenterX = groupStartX + circleRadius
+                                                val normalLeft = groupStartX + (circleRadius * 2f) + circleSpacing
+                                                val hpLeft = normalLeft + barWidth + barSpacing
 
                                                 val normalHeight = ((report.normalConsumption / maxY) * graphHeight)
                                                     .toFloat()
@@ -612,11 +677,48 @@ fun AnalyticsScreen(
                                                 val hpHeight = ((report.heatPumpConsumption / maxY) * graphHeight)
                                                     .toFloat()
                                                     .coerceAtLeast(0f)
+                                                val dailyAvg = report.dailyAverageConsumption
+                                                val avgHeight = ((dailyAvg / maxY) * graphHeight)
+                                                    .toFloat()
+                                                    .coerceAtLeast(0f)
 
                                                 val normalTop = baselineY - normalHeight
                                                 val hpTop = baselineY - hpHeight
+                                                val circleCenterY = baselineY - avgHeight
 
-                                                // Tag-Strom Balken
+                                                // 1. DURCHSCHNITTSVERBRAUCH: KLEINER KREIS VOR DEN BEIDEN BALKEN
+                                                drawLine(
+                                                    color = tertiaryColor.copy(alpha = 0.45f),
+                                                    start = Offset(circleCenterX, baselineY),
+                                                    end = Offset(circleCenterX, circleCenterY),
+                                                    strokeWidth = 1.5f
+                                                )
+                                                drawCircle(
+                                                    color = tertiaryColor,
+                                                    radius = circleRadius,
+                                                    center = Offset(circleCenterX, circleCenterY)
+                                                )
+                                                drawCircle(
+                                                    color = Color.White,
+                                                    radius = circleRadius * 0.4f,
+                                                    center = Offset(circleCenterX, circleCenterY)
+                                                )
+
+                                                if (avgHeight > 6f) {
+                                                    val avgLabel = if (dailyAvg % 1.0 == 0.0) {
+                                                        "${dailyAvg.toLong()}"
+                                                    } else {
+                                                        String.format(Locale.GERMAN, "%.1f", dailyAvg)
+                                                    }
+                                                    drawContext.canvas.nativeCanvas.drawText(
+                                                        avgLabel,
+                                                        circleCenterX,
+                                                        (circleCenterY - circleRadius - 4f).coerceAtLeast(topPadding),
+                                                        barValuePaintAvg
+                                                    )
+                                                }
+
+                                                // 2. Tag-Strom Balken
                                                 if (normalHeight > 0f) {
                                                     drawRoundRect(
                                                         color = primaryColor,
@@ -626,7 +728,7 @@ fun AnalyticsScreen(
                                                     )
                                                 }
 
-                                                // Wärmepumpe Balken
+                                                // 3. Wärmepumpe Balken
                                                 if (hpHeight > 0f) {
                                                     drawRoundRect(
                                                         color = secondaryColor,
@@ -703,33 +805,51 @@ fun AnalyticsScreen(
                                         horizontalArrangement = Arrangement.Center,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
+                                        // Ø Verbrauch (Kreis)
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(9.dp)
+                                                    .background(tertiaryColor, shape = RoundedCornerShape(5.dp))
+                                            )
+                                            Spacer(modifier = Modifier.width(5.dp))
+                                            Text(
+                                                "Ø Verbrauch",
+                                                color = tertiaryColor,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 12.sp
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(16.dp))
+                                        // Tag-Strom
                                         Row(verticalAlignment = Alignment.CenterVertically) {
                                             Box(
                                                 modifier = Modifier
                                                     .size(10.dp)
                                                     .background(primaryColor, shape = RoundedCornerShape(2.dp))
                                             )
-                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Spacer(modifier = Modifier.width(5.dp))
                                             Text(
                                                 "Tag-Strom",
                                                 color = primaryColor,
                                                 fontWeight = FontWeight.Bold,
-                                                fontSize = 13.sp
+                                                fontSize = 12.sp
                                             )
                                         }
-                                        Spacer(modifier = Modifier.width(24.dp))
+                                        Spacer(modifier = Modifier.width(16.dp))
+                                        // Wärmepumpe
                                         Row(verticalAlignment = Alignment.CenterVertically) {
                                             Box(
                                                 modifier = Modifier
                                                     .size(10.dp)
                                                     .background(secondaryColor, shape = RoundedCornerShape(2.dp))
                                             )
-                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Spacer(modifier = Modifier.width(5.dp))
                                             Text(
                                                 "Wärmepumpe",
                                                 color = secondaryColor,
                                                 fontWeight = FontWeight.Bold,
-                                                fontSize = 13.sp
+                                                fontSize = 12.sp
                                             )
                                         }
                                     }
@@ -848,6 +968,33 @@ fun AnalyticsScreen(
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 13.sp,
                                             color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(top = 3.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(7.dp)
+                                                    .background(MaterialTheme.colorScheme.tertiary, shape = RoundedCornerShape(4.dp))
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                "Ø Verbrauch: ${String.format(Locale.GERMAN, "%.2f kWh / Tag", report.dailyAverageConsumption)}",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = MaterialTheme.colorScheme.tertiary
+                                            )
+                                        }
+                                        Text(
+                                            "(${report.days} ${if (report.days == 1) "Tag" else "Tage"})",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
                                 }
