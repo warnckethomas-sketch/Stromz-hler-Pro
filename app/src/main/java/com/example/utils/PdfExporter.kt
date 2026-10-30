@@ -123,12 +123,35 @@ object PdfExporter {
         canvas.drawText("Von: $repStart  bis  $repEnd (${report.days} Tage)", leftMargin, y, paint)
 
         if (report.note.trim().isNotBlank()) {
-            y += 26f // Eine Leerzeile zwischen Zeitraum und Notiz
-            val notePaint = Paint(paint).apply { color = Color.parseColor("#334155") }
-            val noteLines = report.note.trim().split("\n")
-            noteLines.forEachIndexed { index, line ->
-                val prefix = if (index == 0) "Notiz: " else "       "
-                canvas.drawText("$prefix$line", leftMargin, y, notePaint)
+            y += 24f // Eine Leerzeile zwischen Zeitraum und Notiz
+            val noteBoldPaint = Paint(paint).apply {
+                color = Color.parseColor("#0F172A")
+                isFakeBoldText = true
+            }
+            val notePaint = Paint(paint).apply {
+                color = Color.parseColor("#334155")
+            }
+
+            val prefix = "Notiz: "
+            val prefixWidth = noteBoldPaint.measureText(prefix)
+            val availableWidth = (rightMargin - leftMargin) - prefixWidth
+
+            val wrappedLines = wrapText(report.note.trim(), notePaint, availableWidth)
+
+            for ((index, line) in wrappedLines.withIndex()) {
+                if (y > 450f) {
+                    if (index < wrappedLines.size) {
+                        canvas.drawText("...", leftMargin + prefixWidth, y, notePaint)
+                        y += 14f
+                    }
+                    break
+                }
+                if (index == 0) {
+                    canvas.drawText(prefix, leftMargin, y, noteBoldPaint)
+                }
+                if (line.isNotEmpty()) {
+                    canvas.drawText(line, leftMargin + prefixWidth, y, notePaint)
+                }
                 y += 14f
             }
             y += 12f
@@ -529,5 +552,58 @@ object PdfExporter {
             pdfDocument.close()
             return null
         }
+    }
+
+    internal fun wrapText(text: String, paint: Paint, maxWidth: Float): List<String> {
+        val result = mutableListOf<String>()
+        val paragraphs = text.split("\n")
+        for (paragraph in paragraphs) {
+            val trimmed = paragraph.trim()
+            if (trimmed.isEmpty()) {
+                if (result.isNotEmpty()) result.add("")
+                continue
+            }
+            val words = trimmed.split(Regex("\\s+")).filter { it.isNotEmpty() }
+            var currentLine = StringBuilder()
+            for (word in words) {
+                // If a single word is wider than maxWidth, split it into chunks
+                if (paint.measureText(word) > maxWidth) {
+                    if (currentLine.isNotEmpty()) {
+                        result.add(currentLine.toString())
+                        currentLine = StringBuilder()
+                    }
+                    var chunk = StringBuilder()
+                    for (ch in word) {
+                        if (paint.measureText(chunk.toString() + ch) <= maxWidth) {
+                            chunk.append(ch)
+                        } else {
+                            if (chunk.isNotEmpty()) {
+                                result.add(chunk.toString())
+                                chunk = StringBuilder()
+                            }
+                            chunk.append(ch)
+                        }
+                    }
+                    if (chunk.isNotEmpty()) {
+                        currentLine = chunk
+                    }
+                    continue
+                }
+
+                val testLine = if (currentLine.isEmpty()) word else "$currentLine $word"
+                if (paint.measureText(testLine) <= maxWidth) {
+                    currentLine = StringBuilder(testLine)
+                } else {
+                    if (currentLine.isNotEmpty()) {
+                        result.add(currentLine.toString())
+                    }
+                    currentLine = StringBuilder(word)
+                }
+            }
+            if (currentLine.isNotEmpty()) {
+                result.add(currentLine.toString())
+            }
+        }
+        return result
     }
 }
