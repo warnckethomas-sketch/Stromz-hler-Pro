@@ -43,6 +43,7 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Thermostat
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -134,6 +135,7 @@ fun HomeScreen(
     onNavigateToAdd: () -> Unit,
     onNavigateToTariffs: () -> Unit,
     onNavigateToAnalytics: () -> Unit,
+    onNavigateToHeatingGuide: () -> Unit = {},
     onExportPdf: (IntervalReport) -> Unit,
     onDeleteReading: (Long) -> Unit,
     onUpdateReading: ((MeterReadingEntity) -> Unit)? = null,
@@ -477,6 +479,12 @@ fun HomeScreen(
                         modifier = Modifier.testTag("analytics_button")
                     ) {
                         Icon(Icons.Default.ElectricMeter, contentDescription = "Auswertung")
+                    }
+                    IconButton(
+                        onClick = onNavigateToHeatingGuide,
+                        modifier = Modifier.testTag("heating_guide_button")
+                    ) {
+                        Icon(Icons.Default.Thermostat, contentDescription = "Heizungs-Hilfe")
                     }
                     IconButton(
                         onClick = onNavigateToTariffs,
@@ -1187,6 +1195,47 @@ fun HomeScreen(
                                                                 style = MaterialTheme.typography.bodySmall,
                                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                                             )
+                                                        }
+                                                        if (report.note.isNotBlank() || report.heatingNotes.isNotEmpty()) {
+                                                            Spacer(modifier = Modifier.height(6.dp))
+                                                            Column(
+                                                                modifier = Modifier
+                                                                    .fillMaxWidth()
+                                                                    .background(
+                                                                        MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.35f),
+                                                                        shape = RoundedCornerShape(8.dp)
+                                                                    )
+                                                                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                                                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                                                            ) {
+                                                                if (report.note.isNotBlank()) {
+                                                                    Text(
+                                                                        text = "Notiz: ${report.note}",
+                                                                        style = MaterialTheme.typography.bodySmall,
+                                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                                    )
+                                                                }
+                                                                report.heatingNotes.forEach { hNote ->
+                                                                    Row(
+                                                                        verticalAlignment = Alignment.Top,
+                                                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                                    ) {
+                                                                        Icon(
+                                                                            imageVector = Icons.Default.Thermostat,
+                                                                            contentDescription = null,
+                                                                            tint = MaterialTheme.colorScheme.primary,
+                                                                            modifier = Modifier
+                                                                                .size(14.dp)
+                                                                                .padding(top = 2.dp)
+                                                                        )
+                                                                        Text(
+                                                                            text = "Extra-Notiz · $hNote",
+                                                                            style = MaterialTheme.typography.bodySmall,
+                                                                            color = MaterialTheme.colorScheme.onSurface
+                                                                        )
+                                                                    }
+                                                                }
+                                                            }
                                                         }
                                                         Spacer(modifier = Modifier.height(8.dp))
                                                         Button(

@@ -122,8 +122,10 @@ object PdfExporter {
         val repEnd = com.example.utils.DateUtils.formatToGermanDate(report.endString)
         canvas.drawText("Von: $repStart  bis  $repEnd (${report.days} Tage)", leftMargin, y, paint)
 
-        if (report.note.trim().isNotBlank()) {
-            y += 24f // Eine Leerzeile zwischen Zeitraum und Notiz
+        val hasRegularNote = report.note.trim().isNotBlank()
+        val hasHeatingNotes = report.heatingNotes.isNotEmpty()
+        if (hasRegularNote || hasHeatingNotes) {
+            y += 22f // Eine Leerzeile zwischen Zeitraum und Notizen
             val noteBoldPaint = Paint(paint).apply {
                 color = Color.parseColor("#0F172A")
                 isFakeBoldText = true
@@ -132,29 +134,74 @@ object PdfExporter {
                 color = Color.parseColor("#334155")
             }
 
-            val prefix = "Notiz: "
-            val prefixWidth = noteBoldPaint.measureText(prefix)
-            val availableWidth = (rightMargin - leftMargin) - prefixWidth
+            if (hasRegularNote) {
+                val prefix = "Notiz: "
+                val prefixWidth = noteBoldPaint.measureText(prefix)
+                val availableWidth = (rightMargin - leftMargin) - prefixWidth
+                val wrappedLines = wrapText(report.note.trim(), notePaint, availableWidth)
 
-            val wrappedLines = wrapText(report.note.trim(), notePaint, availableWidth)
-
-            for ((index, line) in wrappedLines.withIndex()) {
-                if (y > 450f) {
-                    if (index < wrappedLines.size) {
+                for ((index, line) in wrappedLines.withIndex()) {
+                    if (y > 430f) {
                         canvas.drawText("...", leftMargin + prefixWidth, y, notePaint)
                         y += 14f
+                        break
                     }
-                    break
+                    if (index == 0) {
+                        canvas.drawText(prefix, leftMargin, y, noteBoldPaint)
+                    }
+                    if (line.isNotEmpty()) {
+                        canvas.drawText(line, leftMargin + prefixWidth, y, notePaint)
+                    }
+                    y += 14f
                 }
-                if (index == 0) {
-                    canvas.drawText(prefix, leftMargin, y, noteBoldPaint)
-                }
-                if (line.isNotEmpty()) {
-                    canvas.drawText(line, leftMargin + prefixWidth, y, notePaint)
-                }
-                y += 14f
             }
-            y += 12f
+
+            if (hasHeatingNotes) {
+                val headerPaintBold = Paint(headerPaint).apply { textSize = 9.5f; color = Color.parseColor("#0F172A") }
+                val subBoldPaint = Paint(headerPaint).apply { textSize = 9f; color = Color.parseColor("#1E293B") }
+                val indent = 14f
+                val availableSubWidth = (rightMargin - leftMargin) - indent
+
+                for (hNote in report.heatingNotes) {
+                    val lines = hNote.split("\n")
+                    for ((lIdx, lineStr) in lines.withIndex()) {
+                        if (y > 450f) {
+                            canvas.drawText("...", leftMargin + indent, y, notePaint)
+                            y += 13f
+                            break
+                        }
+                        if (lIdx == 0) {
+                            val cleanHeader = if (lineStr.startsWith("Heizung (") && lineStr.endsWith("):")) {
+                                "Heizung (Extra-Notiz · " + lineStr.removePrefix("Heizung (")
+                            } else {
+                                lineStr
+                            }
+                            canvas.drawText(cleanHeader, leftMargin, y, headerPaintBold)
+                            y += 13f
+                        } else {
+                            val trimmed = lineStr.trim()
+                            val isEg = trimmed.startsWith("• EG:") || trimmed.startsWith("EG:")
+                            val isOg = trimmed.startsWith("• OG:") || trimmed.startsWith("OG:")
+                            val prefix = if (isEg) "• EG: " else if (isOg) "• OG: " else "• "
+                            val content = trimmed.removePrefix("• ").removePrefix("EG: ").removePrefix("OG: ").trim()
+
+                            val pfxWidth = subBoldPaint.measureText(prefix)
+                            val wrapped = wrapText(content, notePaint, availableSubWidth - pfxWidth)
+                            for ((wIdx, wLine) in wrapped.withIndex()) {
+                                if (y > 450f) break
+                                if (wIdx == 0) {
+                                    canvas.drawText(prefix, leftMargin + indent, y, subBoldPaint)
+                                    canvas.drawText(wLine, leftMargin + indent + pfxWidth, y, notePaint)
+                                } else {
+                                    canvas.drawText(wLine, leftMargin + indent + pfxWidth, y, notePaint)
+                                }
+                                y += 13f
+                            }
+                        }
+                    }
+                }
+            }
+            y += 10f
         } else {
             y += 24f
         }
@@ -446,9 +493,9 @@ object PdfExporter {
             y += 16f
         }
 
-        // Chronological Notes under Detailaufstellung (only if notes exist)
+        // Chronological Notes under Detailaufstellung (only if notes or heating extra-notes exist)
         val notesList = intervals
-            .filter { it.note.trim().isNotBlank() }
+            .filter { it.note.trim().isNotBlank() || it.heatingNotes.isNotEmpty() }
             .sortedBy { it.startDate }
 
         if (notesList.isNotEmpty()) {
@@ -467,7 +514,14 @@ object PdfExporter {
                 val prefix = "• $repEnd$dateRangeStr: "
                 val prefixWidth = noteBoldPaint.measureText(prefix)
 
-                val noteText = report.note.trim()
+                val combinedParts = mutableListOf<String>()
+                if (report.note.trim().isNotBlank()) {
+                    combinedParts.add(report.note.trim())
+                }
+                report.heatingNotes.forEach { hNote ->
+                    combinedParts.add("Extra-Notiz · $hNote")
+                }
+                val noteText = combinedParts.joinToString("\n")
                 val paragraphs = noteText.split("\n")
 
                 paragraphs.forEachIndexed { pIdx, paragraph ->
@@ -507,21 +561,34 @@ object PdfExporter {
                         }
                         y += 14f
                     } else {
-                        var curLine = ""
-                        for (word in words) {
-                            val test = if (curLine.isEmpty()) word else "$curLine $word"
-                            if (12f + notePaint.measureText(test) <= maxTextWidth) {
-                                curLine = test
-                            } else {
-                                canvas.drawText(curLine, leftMargin + 12f, y, notePaint)
-                                y += 13f
-                                if (y > 755f) return@forEach
-                                curLine = word
-                            }
+                        val trimmed = paragraph.trim()
+                        val isEg = trimmed.startsWith("• EG:") || trimmed.startsWith("EG:")
+                        val isOg = trimmed.startsWith("• OG:") || trimmed.startsWith("OG:")
+                        val subPrefix = if (isEg) "• EG: " else if (isOg) "• OG: " else ""
+                        val content = if (subPrefix.isNotEmpty()) {
+                            trimmed.removePrefix("• ").removePrefix("EG:").removePrefix("OG:").trim()
+                        } else {
+                            trimmed
                         }
-                        if (curLine.isNotEmpty()) {
-                            canvas.drawText(curLine, leftMargin + 12f, y, notePaint)
-                            y += 14f
+                        val indent = if (subPrefix.isNotEmpty()) 14f else 12f
+                        val subPfxWidth = if (subPrefix.isNotEmpty()) noteBoldPaint.measureText(subPrefix) else 0f
+                        val availableWidth = maxTextWidth - indent - subPfxWidth
+                        val wrapped = wrapText(content, notePaint, availableWidth)
+
+                        for ((wIdx, wLine) in wrapped.withIndex()) {
+                            if (y > 755f) return@forEach
+                            if (wIdx == 0) {
+                                if (subPrefix.isNotEmpty()) {
+                                    canvas.drawText(subPrefix, leftMargin + indent, y, noteBoldPaint)
+                                    canvas.drawText(wLine, leftMargin + indent + subPfxWidth, y, notePaint)
+                                } else {
+                                    canvas.drawText(wLine, leftMargin + indent, y, notePaint)
+                                }
+                            } else {
+                                val offset = if (subPrefix.isNotEmpty()) leftMargin + indent + subPfxWidth else leftMargin + indent
+                                canvas.drawText(wLine, offset, y, notePaint)
+                            }
+                            y += 13f
                         }
                     }
                 }
@@ -543,6 +610,205 @@ object PdfExporter {
 
         pdfDocument.finishPage(page)
         val file = File(context.cacheDir, "Auswertung_${monthKey}.pdf")
+        try {
+            pdfDocument.writeTo(FileOutputStream(file))
+            pdfDocument.close()
+            return file
+        } catch (e: Exception) {
+            e.printStackTrace()
+            pdfDocument.close()
+            return null
+        }
+    }
+
+    fun generateHeatingGuidePdf(
+        context: Context,
+        property: PropertySettingsEntity?,
+        latestSettings: com.example.data.HeatingSettingsEntity? = null
+    ): File? {
+        val pdfDocument = PdfDocument()
+        val totalPages = if (latestSettings != null) 2 else 1
+        val pageInfo = PdfDocument.PageInfo.Builder(595, 842, 1).create()
+        val page = pdfDocument.startPage(pageInfo)
+        val canvas = page.canvas
+
+        val leftMargin = 80f
+        val rightMargin = 555f
+        val maxWidth = rightMargin - leftMargin
+
+        val titlePaint = Paint().apply { color = Color.parseColor("#1E293B"); textSize = 16f; isFakeBoldText = true }
+        val sectionPaint = Paint().apply { color = Color.parseColor("#0F172A"); textSize = 11.5f; isFakeBoldText = true }
+        val boldPaint = Paint().apply { color = Color.parseColor("#1E293B"); textSize = 9f; isFakeBoldText = true }
+        val bodyPaint = Paint().apply { color = Color.parseColor("#334155"); textSize = 9f }
+        val smallPaint = Paint().apply { color = Color.BLACK; textSize = 8f }
+        val linePaint = Paint().apply { color = Color.parseColor("#CBD5E1"); strokeWidth = 1f }
+        val boxPaint = Paint().apply { color = Color.parseColor("#F1F5F9") }
+        val warnBoxPaint = Paint().apply { color = Color.parseColor("#FEF2F2") }
+        val warnTextPaint = Paint().apply { color = Color.parseColor("#991B1B"); textSize = 8.5f; isFakeBoldText = true }
+
+        var y = 42f
+
+        canvas.drawText("Heizungs-Kurzanleitung (EG & OG)", leftMargin, y, titlePaint)
+        y += 16f
+        val genDate = SimpleDateFormat("dd.MM.yyyy", Locale.GERMAN).format(Date())
+        val propSuffix = if (property != null && property.propertyName.isNotBlank()) " | ${property.propertyName}" else ""
+        canvas.drawText("Stand: $genDate$propSuffix", leftMargin, y, smallPaint)
+        y += 14f
+        canvas.drawLine(leftMargin, y, rightMargin, y, linePaint)
+        y += 18f
+
+        // --- SECTION 1: EG ACALOR ---
+        canvas.drawText("1. Erdgeschoss (EG): ACALOR Klimaregler KTRRUU-212.170", leftMargin, y, sectionPaint)
+        y += 15f
+
+        val egSteps = listOf(
+            "1. Menü aufrufen: Menü-Taste (M / drei Linien) drücken -> 'Tagesprogramm Heizen' wählen -> OK.",
+            "2. Tag wählen: Gewünschten Wochentag (z. B. Mo) oder 'All' für alle Tage wählen -> OK.",
+            "3. Zeitleiste: Start bei 00:00 Uhr, Stunde für Stunde Modus festlegen, nach 24:00 Uhr mit OK speichern."
+        )
+        for (step in egSteps) {
+            for (line in wrapText(step, bodyPaint, maxWidth)) {
+                canvas.drawText(line, leftMargin, y, bodyPaint)
+                y += 12f
+            }
+        }
+        y += 4f
+
+        canvas.drawRect(leftMargin, y - 10f, rightMargin, y + 6f, boxPaint)
+        canvas.drawText("Zeitraum", leftMargin + 6f, y + 1f, boldPaint)
+        canvas.drawText("Modus", leftMargin + 110f, y + 1f, boldPaint)
+        canvas.drawText("Soll-Temp.", leftMargin + 215f, y + 1f, boldPaint)
+        canvas.drawText("Display-Anzeige", leftMargin + 295f, y + 1f, boldPaint)
+        y += 18f
+
+        for (slot in com.example.data.HeatingGuideData.acalorSchedule) {
+            canvas.drawText(slot.timeLabel, leftMargin + 6f, y, bodyPaint)
+            canvas.drawText(slot.modeName, leftMargin + 110f, y, bodyPaint)
+            canvas.drawText(slot.temperature, leftMargin + 215f, y, bodyPaint)
+            canvas.drawText(slot.displaySymbol, leftMargin + 295f, y, bodyPaint)
+            y += 13f
+        }
+        y += 4f
+
+        val coolingNote = "Kühlbetrieb im Sommer: Menü-Taste -> 'Betriebsart'/'Modus' von 'Heizen' auf 'Kühlen' (Schneeflocke) + OK. Separate Temperaturen (z. B. 24 °C) unter 'Tagesprogramm Kühlen'."
+        for (line in wrapText(coolingNote, bodyPaint, maxWidth)) {
+            canvas.drawText(line, leftMargin, y, bodyPaint)
+            y += 12f
+        }
+        y += 10f
+        canvas.drawLine(leftMargin, y, rightMargin, y, linePaint)
+        y += 18f
+
+        // --- SECTION 2: OG THERMOSTAT ---
+        canvas.drawText("2. Obergeschoss (OG): Raumthermostat Programme", leftMargin, y, sectionPaint)
+        y += 14f
+        canvas.drawText("Einstellungen: Heizen = 18,5 °C | Abgesenkt = 14 °C | Frostschutz = 5 °C (nur P0)", leftMargin, y, boldPaint)
+        y += 13f
+
+        val sunTip = "Kurzfristig aufheizen (Sonne-Taste): In der abgesenkten Zeit einfach Taste mit der Sonne drücken. Heizt bis zur nächsten Programmschaltung, danach läuft das normale Programm weiter."
+        for (line in wrapText(sunTip, bodyPaint, maxWidth)) {
+            canvas.drawText(line, leftMargin, y, bodyPaint)
+            y += 12f
+        }
+        y += 5f
+
+        for (prog in com.example.data.HeatingGuideData.ogPrograms) {
+            canvas.drawText("P${prog.number}:", leftMargin + 4f, y, boldPaint)
+            canvas.drawText(prog.summary, leftMargin + 36f, y, bodyPaint)
+            y += 12.5f
+        }
+        y += 6f
+
+        canvas.drawRect(leftMargin, y - 10f, rightMargin, y + 20f, warnBoxPaint)
+        val warningText = "Achtung Programme 12–20: Nicht eingestellt! Nicht benutzen oder erst individuell einstellen, sonst läuft die Heizung 24 Std. durch wie bei Programm 8."
+        for (line in wrapText(warningText, warnTextPaint, maxWidth - 12f)) {
+            canvas.drawText(line, leftMargin + 6f, y + 1f, warnTextPaint)
+            y += 12f
+        }
+
+        // Footer Page 1
+        val footerY = 800f
+        canvas.drawLine(leftMargin, footerY, rightMargin, footerY, linePaint)
+        canvas.drawText("Stromzähler-App", leftMargin, footerY + 15f, smallPaint)
+        val pageNumPaint = Paint(smallPaint).apply { textAlign = Paint.Align.RIGHT }
+        canvas.drawText("Seite 1 von $totalPages", rightMargin, footerY + 15f, pageNumPaint)
+
+        pdfDocument.finishPage(page)
+
+        // Optional Page 2: Currently saved settings
+        if (latestSettings != null) {
+            val page2Info = PdfDocument.PageInfo.Builder(595, 842, 2).create()
+            val page2 = pdfDocument.startPage(page2Info)
+            val c2 = page2.canvas
+            var y2 = 45f
+
+            c2.drawText("Aktuell gespeicherte Heizungseinstellungen", leftMargin, y2, titlePaint)
+            y2 += 16f
+            val effDate = com.example.utils.DateUtils.formatToGermanDate(latestSettings.effectiveDateString)
+            c2.drawText("Gültig ab: $effDate$propSuffix", leftMargin, y2, smallPaint)
+            y2 += 14f
+            c2.drawLine(leftMargin, y2, rightMargin, y2, linePaint)
+            y2 += 20f
+
+            // EG Summary
+            c2.drawText("Erdgeschoss (EG) · ACALOR KTRRUU-212.170", leftMargin, y2, sectionPaint)
+            y2 += 16f
+            val egModeStr = if (latestSettings.egMode == "KUEHLEN") {
+                "Betriebsart: Kühlen | Komfortkühlung: ${String.format(Locale.GERMAN, "%.1f °C", latestSettings.egCoolTemp)}"
+            } else {
+                "Betriebsart: Heizen | Komfort: ${String.format(Locale.GERMAN, "%.1f °C", latestSettings.egComfortTemp)} | ECO: ${String.format(Locale.GERMAN, "%.1f °C", latestSettings.egEcoTemp)}"
+            }
+            c2.drawText(egModeStr, leftMargin, y2, bodyPaint)
+            y2 += 16f
+
+            if (latestSettings.egScheduleType == "WEEKLY") {
+                c2.drawText("Wochenplan (Mo–So):", leftMargin, y2, boldPaint)
+                y2 += 14f
+                val weekly = com.example.data.HeatingGuideData.parseWeeklyMasks(latestSettings.egWeeklyMasks)
+                com.example.data.HeatingGuideData.WEEKDAYS.forEachIndexed { idx, day ->
+                    c2.drawText("$day:", leftMargin + 6f, y2, boldPaint)
+                    c2.drawText(com.example.data.HeatingGuideData.formatHourRanges(weekly[idx]), leftMargin + 36f, y2, bodyPaint)
+                    y2 += 14f
+                }
+            } else {
+                val hours = com.example.data.HeatingGuideData.parseEgMask(latestSettings.egAllDaysMask)
+                c2.drawText("Alle Tage (All): ${com.example.data.HeatingGuideData.formatHourRanges(hours)}", leftMargin, y2, bodyPaint)
+                y2 += 16f
+            }
+
+            y2 += 12f
+            c2.drawLine(leftMargin, y2, rightMargin, y2, linePaint)
+            y2 += 20f
+
+            // OG Summary
+            c2.drawText("Obergeschoss (OG) · Raumthermostat", leftMargin, y2, sectionPaint)
+            y2 += 16f
+            c2.drawText(
+                "Heizen: ${String.format(Locale.GERMAN, "%.1f °C", latestSettings.ogHeatTemp)} | Abgesenkt: ${String.format(Locale.GERMAN, "%.1f °C", latestSettings.ogSetbackTemp)} | Frostschutz: ${String.format(Locale.GERMAN, "%.1f °C", latestSettings.ogFrostTemp)}",
+                leftMargin,
+                y2,
+                bodyPaint
+            )
+            y2 += 18f
+
+            val ogProgs = com.example.data.HeatingGuideData.parseOgDayPrograms(latestSettings.ogDayPrograms)
+            com.example.data.HeatingGuideData.WEEKDAYS.forEachIndexed { idx, day ->
+                val pNum = ogProgs[idx]
+                val pSummary = com.example.data.HeatingGuideData.ogPrograms.find { it.number == pNum }?.summary ?: ""
+                c2.drawText("$day:", leftMargin + 6f, y2, boldPaint)
+                c2.drawText("P$pNum – $pSummary", leftMargin + 36f, y2, bodyPaint)
+                y2 += 14f
+            }
+
+            // Footer Page 2
+            c2.drawLine(leftMargin, footerY, rightMargin, footerY, linePaint)
+            c2.drawText("Stromzähler-App", leftMargin, footerY + 15f, smallPaint)
+            c2.drawText("Seite 2 von $totalPages", rightMargin, footerY + 15f, pageNumPaint)
+
+            pdfDocument.finishPage(page2)
+        }
+
+        val file = File(context.cacheDir, "Heizungs_Kurzanleitung_EG_OG.pdf")
         try {
             pdfDocument.writeTo(FileOutputStream(file))
             pdfDocument.close()

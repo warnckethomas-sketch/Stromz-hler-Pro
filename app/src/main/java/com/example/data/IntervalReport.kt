@@ -23,7 +23,8 @@ data class IntervalReport(
     val heatPumpBaseCost: Double,
     val heatPumpTotalCost: Double,
     val totalCost: Double,
-    val note: String
+    val note: String,
+    val heatingNotes: List<String> = emptyList()
 ) {
     val dailyAverageConsumption: Double
         get() = if (days > 0) totalConsumption / days else 0.0
@@ -37,11 +38,15 @@ data class IntervalReport(
 
 fun calculateIntervals(
     readings: List<MeterReadingEntity>,
-    tariffs: TariffSettingsEntity
+    tariffs: TariffSettingsEntity,
+    heatingSettings: List<HeatingSettingsEntity> = emptyList()
 ): List<IntervalReport> {
     if (readings.size < 2) return emptyList()
 
     val sorted = readings.sortedBy { it.date }
+    val sortedHeating = heatingSettings.sortedBy {
+        com.example.utils.DateUtils.toIsoDateString(it.effectiveDateString)
+    }
     val reports = mutableListOf<IntervalReport>()
 
     for (i in 1 until sorted.size) {
@@ -70,6 +75,22 @@ fun calculateIntervals(
 
         val noteText = curr.note.trim()
 
+        val startIso = com.example.utils.DateUtils.toIsoDateString(prev.dateString)
+            .ifBlank { com.example.utils.DateUtils.timestampToIsoDateString(prev.date) }
+        val endIso = com.example.utils.DateUtils.toIsoDateString(curr.dateString)
+            .ifBlank { com.example.utils.DateUtils.timestampToIsoDateString(curr.date) }
+        val isLatestInterval = (i == sorted.lastIndex)
+
+        val matchedHeatingNotes = sortedHeating.filter { setting ->
+            val settingIso = com.example.utils.DateUtils.toIsoDateString(setting.effectiveDateString)
+                .ifBlank { com.example.utils.DateUtils.timestampToIsoDateString(setting.effectiveTimestamp) }
+            if (isLatestInterval) {
+                settingIso >= startIso && settingIso <= endIso
+            } else {
+                settingIso >= startIso && settingIso < endIso
+            }
+        }.map { HeatingGuideData.formatHeatingExtraNote(it) }
+
         reports.add(
             IntervalReport(
                 id = curr.id,
@@ -92,7 +113,8 @@ fun calculateIntervals(
                 heatPumpBaseCost = hpBase,
                 heatPumpTotalCost = hpTotal,
                 totalCost = totalCost,
-                note = noteText
+                note = noteText,
+                heatingNotes = matchedHeatingNotes
             )
         )
     }

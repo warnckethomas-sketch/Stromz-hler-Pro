@@ -3,6 +3,7 @@ package com.example.utils
 import android.content.Context
 import android.net.Uri
 import com.example.data.AppDatabase
+import com.example.data.HeatingSettingsEntity
 import com.example.data.MeterReadingEntity
 import com.example.data.TariffSettingsEntity
 import com.example.data.TenantEntity
@@ -20,10 +21,11 @@ import java.util.Locale
 
 @JsonClass(generateAdapter = true)
 data class BackupData(
-    val version: Int = 1,
+    val version: Int = 2,
     val tenants: List<TenantEntity>,
     val readings: List<MeterReadingEntity>,
-    val tariffs: TariffSettingsEntity?
+    val tariffs: TariffSettingsEntity?,
+    val heatingSettings: List<HeatingSettingsEntity> = emptyList()
 )
 
 object BackupManager {
@@ -38,8 +40,9 @@ object BackupManager {
                 val tenants = db.tenantDao().getAllTenantsList()
                 val readings = db.meterReadingDao().getAllReadingsList()
                 val tariffs = db.tariffDao().getTariffSync()
+                val heating = db.heatingSettingsDao().getAllHeatingSettingsList()
 
-                val backup = BackupData(tenants = tenants, readings = readings, tariffs = tariffs)
+                val backup = BackupData(tenants = tenants, readings = readings, tariffs = tariffs, heatingSettings = heating)
                 val jsonString = adapter.toJson(backup)
 
                 context.contentResolver.openOutputStream(uri)?.use { outputStream ->
@@ -60,8 +63,9 @@ object BackupManager {
                 val tenants = db.tenantDao().getAllTenantsList()
                 val readings = db.meterReadingDao().getAllReadingsList()
                 val tariffs = db.tariffDao().getTariffSync()
+                val heating = db.heatingSettingsDao().getAllHeatingSettingsList()
 
-                val backup = BackupData(tenants = tenants, readings = readings, tariffs = tariffs)
+                val backup = BackupData(tenants = tenants, readings = readings, tariffs = tariffs, heatingSettings = heating)
                 val jsonString = adapter.toJson(backup)
 
                 val file = File(context.filesDir, "auto_backup_stromzaehler.json")
@@ -104,6 +108,7 @@ object BackupManager {
                 backup.tenants.forEach { db.tenantDao().insertTenant(it) }
                 backup.readings.forEach { db.meterReadingDao().insertReading(it) }
                 backup.tariffs?.let { db.tariffDao().insertTariff(it) }
+                backup.heatingSettings.forEach { db.heatingSettingsDao().insertHeatingSettings(it) }
 
                 true
             } catch (e: Exception) {

@@ -1,3 +1,6 @@
 <resources>
     <string name="app_name">StromZähler</string>
+    <string name="heating_guide_title">Heizungs-Hilfe</string>
+    <string name="heating_guide_export_pdf">Merkblatt als PDF</string>
+    <string name="back">Zurück</string>
 </resources>

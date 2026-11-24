@@ -31,4 +31,26 @@ object DateUtils {
             trimmed
         }
     }
+
+    fun toIsoDateString(dateStr: String?): String {
+        if (dateStr.isNullOrBlank()) return ""
+        val trimmed = dateStr.trim()
+        if (trimmed.matches(Regex("""\d{4}-\d{2}-\d{2}"""))) {
+            return trimmed
+        }
+        if (trimmed.matches(Regex("""\d{2}\.\d{2}\.\d{4}"""))) {
+            val parts = trimmed.split(".")
+            return "${parts[2]}-${parts[1]}-${parts[0]}"
+        }
+        return try {
+            val parsed = GERMAN_DATE_FORMAT.parse(trimmed)
+            if (parsed != null) SimpleDateFormat("yyyy-MM-dd", Locale.GERMAN).format(parsed) else trimmed
+        } catch (e: Exception) {
+            trimmed
+        }
+    }
+
+    fun timestampToIsoDateString(timestamp: Long): String {
+        return SimpleDateFormat("yyyy-MM-dd", Locale.GERMAN).format(Date(timestamp))
+    }
 }

@@ -24,6 +24,7 @@ import androidx.navigation.compose.rememberNavController
 import com.example.ui.MainViewModel
 import com.example.ui.screens.AddReadingScreen
 import com.example.ui.screens.AnalyticsScreen
+import com.example.ui.screens.HeatingGuideScreen
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.TariffSetupScreen
 import com.example.ui.theme.MyApplicationTheme
@@ -49,6 +50,7 @@ class MainActivity : ComponentActivity() {
                     val readings by viewModel.readings.collectAsState()
                     val tariffs by viewModel.tariffs.collectAsState()
                     val propertySettings by viewModel.propertySettings.collectAsState()
+                    val heatingSettings by viewModel.heatingSettings.collectAsState()
                     val intervals by viewModel.intervalReports.collectAsState()
                     val isBackingUp by viewModel.isBackingUp.collectAsState()
 
@@ -95,6 +97,7 @@ class MainActivity : ComponentActivity() {
                                 onNavigateToAdd = { navController.navigate("add_reading") },
                                 onNavigateToTariffs = { navController.navigate("tariffs") },
                                 onNavigateToAnalytics = { navController.navigate("analytics") },
+                                onNavigateToHeatingGuide = { navController.navigate("heating_guide") },
                                 onExportPdf = { report ->
                                     val pdfFile = PdfExporter.generateIntervalReportPdf(
                                         this@MainActivity,
@@ -194,6 +197,41 @@ class MainActivity : ComponentActivity() {
                                         tariffs,
                                         propertySettings,
                                         selectedTenant
+                                    )
+                                    if (pdfFile != null && pdfFile.exists()) {
+                                        val uri = FileProvider.getUriForFile(
+                                            this@MainActivity,
+                                            "${packageName}.fileprovider",
+                                            pdfFile
+                                        )
+                                        val intent = Intent(Intent.ACTION_VIEW).apply {
+                                            setDataAndType(uri, "application/pdf")
+                                            flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NO_HISTORY
+                                        }
+                                        try {
+                                            startActivity(intent)
+                                        } catch (e: Exception) {
+                                            Toast.makeText(this@MainActivity, "PDF erstellt, aber kein PDF-Viewer gefunden.", Toast.LENGTH_LONG).show()
+                                        }
+                                    } else {
+                                        Toast.makeText(this@MainActivity, "Fehler beim Erstellen des PDFs.", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            )
+                        }
+                        composable("heating_guide") {
+                            HeatingGuideScreen(
+                                savedSettings = heatingSettings,
+                                readings = readings,
+                                intervals = intervals,
+                                onSaveSettings = { entity -> viewModel.saveHeatingSettings(entity) },
+                                onDeleteSettings = { id -> viewModel.deleteHeatingSettings(id) },
+                                onNavigateBack = { navController.popBackStack() },
+                                onExportPdf = {
+                                    val pdfFile = PdfExporter.generateHeatingGuidePdf(
+                                        this@MainActivity,
+                                        propertySettings,
+                                        heatingSettings.firstOrNull()
                                     )
                                     if (pdfFile != null && pdfFile.exists()) {
                                         val uri = FileProvider.getUriForFile(

@@ -48,4 +48,13 @@ class ExampleRobolectricTest {
     org.junit.Assert.assertEquals("Erster kurzer Absatz.", wrapped[0])
     org.junit.Assert.assertEquals("Zweiter kurzer Absatz.", wrapped[1])
   }
+
+  @Test
+  fun `generateHeatingGuidePdf creates valid non-empty file`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val file = com.example.utils.PdfExporter.generateHeatingGuidePdf(context, null)
+    org.junit.Assert.assertNotNull("PDF file should not be null", file)
+    org.junit.Assert.assertTrue("PDF file should exist", file!!.exists())
+    org.junit.Assert.assertTrue("PDF file should not be empty", file.length() > 0L)
+  }
 }

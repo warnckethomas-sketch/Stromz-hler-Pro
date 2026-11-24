@@ -8,6 +8,8 @@ import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 
 @Entity(tableName = "tenants")
@@ -48,6 +50,25 @@ data class PropertySettingsEntity(
     val propertyAddress: String = "",
     val meterNumberNormal: String = "",
     val meterNumberHeatPump: String = ""
+)
+
+@Entity(tableName = "heating_settings")
+data class HeatingSettingsEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val effectiveTimestamp: Long,
+    val effectiveDateString: String, // format "yyyy-MM-dd"
+    val egMode: String = "HEIZEN", // "HEIZEN" or "KUEHLEN"
+    val egComfortTemp: Double = 21.0,
+    val egEcoTemp: Double = 17.0,
+    val egCoolTemp: Double = 24.0,
+    val egScheduleType: String = "ALL", // "ALL" or "WEEKLY"
+    val egAllDaysMask: String = "000000111000000011111100",
+    val egWeeklyMasks: String = "",
+    val ogHeatTemp: Double = 18.5,
+    val ogSetbackTemp: Double = 14.0,
+    val ogFrostTemp: Double = 5.0,
+    val ogDayPrograms: String = "1,1,1,1,1,1,1",
+    val updatedAt: Long = System.currentTimeMillis()
 )
 
 @Dao
@@ -110,10 +131,65 @@ interface PropertyDao {
     suspend fun insertProperty(property: PropertySettingsEntity)
 }
 
-@Database(entities = [TenantEntity::class, MeterReadingEntity::class, TariffSettingsEntity::class, PropertySettingsEntity::class], version = 4, exportSchema = false)
+@Dao
+interface HeatingSettingsDao {
+    @Query("SELECT * FROM heating_settings ORDER BY effectiveDateString DESC, updatedAt DESC")
+    fun getAllHeatingSettings(): Flow<List<HeatingSettingsEntity>>
+
+    @Query("SELECT * FROM heating_settings ORDER BY effectiveDateString DESC, updatedAt DESC")
+    suspend fun getAllHeatingSettingsList(): List<HeatingSettingsEntity>
+
+    @Query("SELECT * FROM heating_settings WHERE effectiveDateString = :dateString LIMIT 1")
+    suspend fun getByDateString(dateString: String): HeatingSettingsEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertHeatingSettings(settings: HeatingSettingsEntity): Long
+
+    @Query("DELETE FROM heating_settings WHERE id = :id")
+    suspend fun deleteHeatingSettings(id: Long)
+}
+
+val MIGRATION_4_5 = object : Migration(4, 5) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `heating_settings` (
+                `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                `effectiveTimestamp` INTEGER NOT NULL,
+                `effectiveDateString` TEXT NOT NULL,
+                `egMode` TEXT NOT NULL,
+                `egComfortTemp` REAL NOT NULL,
+                `egEcoTemp` REAL NOT NULL,
+                `egCoolTemp` REAL NOT NULL,
+                `egScheduleType` TEXT NOT NULL,
+                `egAllDaysMask` TEXT NOT NULL,
+                `egWeeklyMasks` TEXT NOT NULL,
+                `ogHeatTemp` REAL NOT NULL,
+                `ogSetbackTemp` REAL NOT NULL,
+                `ogFrostTemp` REAL NOT NULL,
+                `ogDayPrograms` TEXT NOT NULL,
+                `updatedAt` INTEGER NOT NULL
+            )
+            """.trimIndent()
+        )
+    }
+}
+
+@Database(
+    entities = [
+        TenantEntity::class,
+        MeterReadingEntity::class,
+        TariffSettingsEntity::class,
+        PropertySettingsEntity::class,
+        HeatingSettingsEntity::class
+    ],
+    version = 5,
+    exportSchema = false
+)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun tenantDao(): TenantDao
     abstract fun meterReadingDao(): MeterReadingDao
     abstract fun tariffDao(): TariffDao
     abstract fun propertyDao(): PropertyDao
+    abstract fun heatingSettingsDao(): HeatingSettingsDao
 }

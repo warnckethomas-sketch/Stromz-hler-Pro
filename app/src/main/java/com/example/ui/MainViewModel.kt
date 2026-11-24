@@ -7,7 +7,9 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.room.Room
 import com.example.data.AppDatabase
+import com.example.data.HeatingSettingsEntity
 import com.example.data.IntervalReport
+import com.example.data.MIGRATION_4_5
 import com.example.data.MeterReadingEntity
 import com.example.data.MeterRepository
 import com.example.data.PropertySettingsEntity
@@ -34,10 +36,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         AppDatabase::class.java,
         "strom_database"
     )
+        .addMigrations(MIGRATION_4_5)
         .fallbackToDestructiveMigration()
         .build()
 
-    private val repository = MeterRepository(db.tenantDao(), db.meterReadingDao(), db.tariffDao())
+    private val repository = MeterRepository(
+        db.tenantDao(),
+        db.meterReadingDao(),
+        db.tariffDao(),
+        db.heatingSettingsDao()
+    )
 
     private val _isBackingUp = MutableStateFlow(false)
     val isBackingUp: StateFlow<Boolean> = _isBackingUp
@@ -92,10 +100,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             initialValue = PropertySettingsEntity()
         )
 
-    val intervalReports: StateFlow<List<IntervalReport>> = readings
-        .combine(tariffs) { readingList, tariffSettings ->
-            calculateIntervals(readingList, tariffSettings)
-        }
+    val heatingSettings: StateFlow<List<HeatingSettingsEntity>> = (repository.allHeatingSettings ?: flowOf(emptyList()))
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+    val intervalReports: StateFlow<List<IntervalReport>> = combine(
+        readings,
+        tariffs,
+        heatingSettings
+    ) { readingList, tariffSettings, heatingList ->
+        calculateIntervals(readingList, tariffSettings, heatingList)
+    }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
@@ -234,6 +252,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 meterNumberHeatPump = meterHp
             )
             db.propertyDao().insertProperty(updated)
+            triggerAutoBackup()
+        }
+    }
+
+    fun saveHeatingSettings(settings: HeatingSettingsEntity) {
+        viewModelScope.launch {
+            repository.saveHeatingSettings(settings)
+            triggerAutoBackup()
+        }
+    }
+
+    fun deleteHeatingSettings(id: Long) {
+        viewModelScope.launch {
+            repository.deleteHeatingSettings(id)
             triggerAutoBackup()
         }
     }

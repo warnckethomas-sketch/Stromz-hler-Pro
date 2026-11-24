@@ -145,4 +145,76 @@ class ExampleUnitTest {
     assertEquals("Frühere Notiz am 15.03.", notesList[0].note)
     assertEquals("Spätere Notiz am 31.03.", notesList[1].note)
   }
+
+  @Test
+  fun heatingGuideData_hasCompleteAcalorScheduleAndOgPrograms() {
+    val acalor = com.example.data.HeatingGuideData.acalorSchedule
+    assertEquals(5, acalor.size)
+    assertEquals(0f, acalor.first().startHour, 0.01f)
+    assertEquals(24f, acalor.last().endHour, 0.01f)
+
+    val ogPrograms = com.example.data.HeatingGuideData.ogPrograms
+    assertEquals(12, ogPrograms.size)
+    assertEquals((0..11).toList(), ogPrograms.map { it.number })
+  }
+
+  @Test
+  fun heatingGuideData_encodesAndFormatsMasksAndWeeklyProgramsCorrectly() {
+    val defaultHours = com.example.data.HeatingGuideData.parseEgMask(com.example.data.HeatingGuideData.DEFAULT_EG_MASK)
+    assertEquals(24, defaultHours.size)
+    assertEquals("06–09, 16–22 Uhr Komfort", com.example.data.HeatingGuideData.formatHourRanges(defaultHours))
+
+    val entityAll = com.example.data.HeatingSettingsEntity(
+      effectiveTimestamp = 1705276800000L,
+      effectiveDateString = "2024-01-15",
+      egScheduleType = "ALL",
+      ogDayPrograms = "2,2,2,2,2,1,1"
+    )
+    val noteAll = com.example.data.HeatingGuideData.formatHeatingExtraNote(entityAll)
+    assertTrue(noteAll.contains("15.01.2024"))
+    assertTrue(noteAll.contains("All: 06–09, 16–22 Uhr Komfort"))
+    assertTrue(noteAll.contains("Mo–Fr: P2, Sa–So: P1"))
+    assertTrue("Should contain newline separating EG and OG", noteAll.contains("\n"))
+    assertTrue("EG should come before OG", noteAll.indexOf("EG:") < noteAll.indexOf("OG:"))
+  }
+
+  @Test
+  fun calculateIntervals_attachesHeatingSettingsAsExtraNoteToMatchingInterval() {
+    val tariffs = TariffSettingsEntity()
+    val r1 = MeterReadingEntity(1L, 1L, 1704067200000L, "2024-01-01", 1000.0, 500.0)
+    val r2 = MeterReadingEntity(2L, 1L, 1706745600000L, "2024-02-01", 1100.0, 600.0)
+    val r3 = MeterReadingEntity(3L, 1L, 1709251200000L, "2024-03-01", 1200.0, 700.0)
+
+    val hJan = com.example.data.HeatingSettingsEntity(
+      id = 10L,
+      effectiveTimestamp = 1705276800000L,
+      effectiveDateString = "2024-01-15",
+      ogDayPrograms = "2,2,2,2,2,2,2"
+    )
+    val hFebStart = com.example.data.HeatingSettingsEntity(
+      id = 11L,
+      effectiveTimestamp = 1706745600000L,
+      effectiveDateString = "2024-02-01",
+      ogDayPrograms = "1,1,1,1,1,1,1"
+    )
+    val hMarEnd = com.example.data.HeatingSettingsEntity(
+      id = 12L,
+      effectiveTimestamp = 1709251200000L,
+      effectiveDateString = "2024-03-01",
+      ogDayPrograms = "4,4,4,4,4,4,4"
+    )
+
+    val intervals = calculateIntervals(listOf(r1, r2, r3), tariffs, listOf(hJan, hFebStart, hMarEnd))
+    assertEquals(2, intervals.size)
+
+    val janInterval = intervals.first { it.endString == "01.02.2024" }
+    val febInterval = intervals.first { it.endString == "01.03.2024" }
+
+    assertEquals(1, janInterval.heatingNotes.size)
+    assertTrue(janInterval.heatingNotes[0].contains("15.01.2024"))
+
+    assertEquals(2, febInterval.heatingNotes.size)
+    assertTrue(febInterval.heatingNotes[0].contains("01.02.2024"))
+    assertTrue(febInterval.heatingNotes[1].contains("01.03.2024"))
+  }
 }
